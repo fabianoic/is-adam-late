@@ -108,6 +108,25 @@
     color: var(--muted);
   }
 
+  .counter {
+    margin: 0;
+    padding: 8px 16px;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .counter .count {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .back { gap: 14px; }
+
   /* ---------- Buttons ---------- */
   button {
     font: inherit;
@@ -171,6 +190,7 @@
         <p class="date" id="dateBack"></p>
         <p class="answer" id="answer">…</p>
         <p class="detail" id="detail"></p>
+        <p class="counter"><span class="count" id="count">0</span> <span id="countLabel">days late so far</span></p>
         <button id="backBtn" type="button">Flip back</button>
       </section>
     </div>
@@ -186,13 +206,13 @@
   // CONFIGURAÇÃO: cole aqui a URL do seu Realtime Database (sem barra no fim)
   // Exemplo: "https://is-adam-late-default-rtdb.europe-west1.firebasedatabase.app"
   // =====================================================================
-  const DB_URL = "https://is-adam-late-e60d0-default-rtdb.europe-west1.firebasedatabase.app/";
+  const DB_URL = "https://is-adam-late-e60d0-default-rtdb.europe-west1.firebasedatabase.app";
 
   // Fuso usado para decidir o que é "hoje" (igual para todos os visitantes)
   const TIME_ZONE = "Europe/Dublin";
 
   // ---------------------------------------------------------------------
-  const ENDPOINT = DB_URL.replace(/\/+$/, "") + "/adam/lateDate.json";
+  const BASE = DB_URL.replace(/\/+$/, "") + "/adam/lateDays";
   const configured = DB_URL.startsWith("https://");
 
   const card = document.getElementById("card");
@@ -204,8 +224,11 @@
   const answerEl = document.getElementById("answer");
   const detailEl = document.getElementById("detail");
   const statusEl = document.getElementById("status");
+  const countEl = document.getElementById("count");
+  const countLabelEl = document.getElementById("countLabel");
 
   let isLate = false;
+  let lateCount = 0;   // total de dias em que o Adam foi marcado como atrasado
 
   // Data de hoje no formato YYYY-MM-DD, sempre no fuso configurado
   function today() {
@@ -223,6 +246,8 @@
     answerEl.className = "answer " + (isLate ? "yes" : "no");
     detailEl.textContent = isLate ? "Of course he is." : "Not today. So far.";
     toggleBtn.textContent = isLate ? "Undo: Adam is not late" : "Mark Adam as late today";
+    countEl.textContent = lateCount;
+    countLabelEl.textContent = (lateCount === 1 ? "day" : "days") + " late so far";
   }
 
   function setFlipped(flipped) {
@@ -232,23 +257,26 @@
     back.inert = !flipped;
   }
 
-  // Lê a data salva; o "boolean" é simplesmente: dataSalva === hoje
+  // O banco guarda um registro por dia atrasado: { "2026-10-04": true, ... }
+  // "Atrasado hoje" = existe a chave de hoje. Contador = quantidade de chaves.
   async function load() {
-    const res = await fetch(ENDPOINT, { cache: "no-store" });
+    const res = await fetch(BASE + ".json", { cache: "no-store" });
     if (!res.ok) throw new Error("HTTP " + res.status);
-    const savedDate = await res.json(); // string "YYYY-MM-DD" ou null
-    isLate = savedDate === today();
+    const days = (await res.json()) || {};
+    isLate = days[today()] === true;
+    lateCount = Object.keys(days).length;
     render();
   }
 
-  // Grava a data de hoje (atrasado) ou apaga o valor (não atrasado)
+  // Cria o registro de hoje (atrasado) ou apaga (não atrasado).
+  // Marcar duas vezes no mesmo dia não conta em dobro.
   async function save(late) {
-    const res = await fetch(ENDPOINT, late
-      ? { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(today()) }
+    const url = BASE + "/" + today() + ".json";
+    const res = await fetch(url, late
+      ? { method: "PUT", headers: { "Content-Type": "application/json" }, body: "true" }
       : { method: "DELETE" });
     if (!res.ok) throw new Error("HTTP " + res.status);
-    isLate = late;
-    render();
+    await load();   // relê para atualizar resposta e contador
   }
 
   revealBtn.addEventListener("click", async () => {
